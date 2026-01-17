@@ -1,0 +1,59 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-1-user-1
+  namespace: argocd
+  annotations:
+    # This sends app-1 info specifically to user1
+    notifications.argoproj.io/subscribe.on-sync-succeeded.email: user1@example.com
+    notifications.argoproj.io/subscribe.on-health-status-change.email: user1@example.com
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: HEAD
+    path: guestbook
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-2-user-2
+  namespace: argocd
+  annotations:
+    # This sends app-2 info specifically to user2
+    notifications.argoproj.io/subscribe.on-sync-succeeded.email: user2@example.com
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: HEAD
+    path: guestbook
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-mix-cross-routing
+  namespace: argocd
+  annotations:
+    # This ACHIEVES sending info of app-1 logic to user-2
+    # Even if this 'belongs' to one person, you control the recipient here:
+    notifications.argoproj.io/subscribe.on-health-status-change.email: user2@example.com
+spec:
+  project: default
+  # ... source and destination ...

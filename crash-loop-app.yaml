@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crash-loop-test
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: HEAD
+    path: guestbook
+    kustomize:
+      images:
+        - gcr.io/heptio-images/ks-guestbook-demo:0.2=busybox:latest
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crash-test
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
