@@ -192,6 +192,17 @@ configs:
     # -- Create the argocd-cm configmap for [declarative setup]
     create: true
 
+    # The public URL of your ArgoCD
+    url: https://localhost:8080
+
+    # OIDC configuration for Keycloak
+    oidc.config: |
+      name: Keycloak
+      issuer: http://62.84.183.2:7080/realms/master
+      clientID: argocd
+      clientSecret: $oidc.keycloak.clientSecret
+      requestedScopes: ["openid", "profile", "email", "groups"]
+
     # -- Annotations to be added to argocd-cm configmap
     annotations: {}
 
@@ -253,11 +264,6 @@ configs:
     #         - name: your-github-org
 
     # OIDC configuration as an alternative to dex (optional).
-    # oidc.config: |
-    #   name: AzureAD
-    #   issuer: https://login.microsoftonline.com/TENANT_ID/v2.0
-    #   clientID: aaaabbbbccccddddeee
-    #   clientSecret: $oidc.azuread.clientSecret
 
     # Some OIDC providers require a separate clientID for different callback URLs.
     # For example, if configuring Argo CD with self-hosted Dex, you will need a separate client ID
@@ -466,11 +472,20 @@ configs:
 
     # -- The name of the default role which Argo CD will falls back to, when authorizing API requests (optional).
     # If omitted or empty, users may be still be able to login, but will see no apps, projects, etc...
-    policy.default: ''
+    policy.default: role:readonly
 
     # -- File containing user-defined policies and role definitions.
     # @default -- `''` (See [values.yaml])
-    policy.csv: ''
+    policy.csv: |
+      # Permissions for readonly role
+      p, role:readonly, applications, get, */*, allow
+      p, role:readonly, projects, get, *, allow
+      p, role:readonly, clusters, get, *, allow
+      p, role:readonly, repositories, get, *, allow
+
+      # Group/User mappings
+      g, testuser, role:admin
+      g, argocd, role:readonly
     # Policy rules are in the form:
     #  p, subject, resource, action, object, effect
     # Role definitions and bindings are in the form:
@@ -3705,53 +3720,60 @@ notifications:
   templates:
     template.app-sync-succeeded: |
       email:
-        subject: Application {{.app.metadata.name}} has been successfully synced.
+        subject: "✅ ArgoCD [SUCCESS] - {{.app.metadata.name}} Synced"
       message: |
-        Application {{.app.metadata.name}} has been successfully synced at {{.app.status.operationState.finishedAt}}.
-        Sync operation details are available at: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+        🎉 SUCCESS! Application '{{.app.metadata.name}}' is now fully synced.
+
+        🏠 Details:
+        - Namespace: {{.app.spec.destination.namespace}}
+        - Sync Time: {{.app.status.operationState.finishedAt}}
+        
+        🔗 Quick Link: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
 
     template.app-sync-failed: |
       email:
-        subject: ❌ ArgoCD Alert - {{.app.metadata.name}} - Sync Failed
+        subject: "❌ ArgoCD [FAILURE] - {{.app.metadata.name}} Sync Failed"
       message: |
-        🛑 Sync Operation Failed 🛑
+        🛑 ACTION REQUIRED: Sync failed for '{{.app.metadata.name}}'.
+
+        --------------------------------------------------
+        ❌ ERROR: {{.app.status.operationState.message}}
+        --------------------------------------------------
 
         📁 Application: {{.app.metadata.name}}
-        ❌ Error Message: {{.app.status.operationState.message}}
-        
-        🏠 Sync metadata:
-        - Revision: {{.app.status.operationState.syncResult.revision}}
-        - Timestamp: {{.app.status.operationState.finishedAt}}
+        🔗 View Logs: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
 
-        🔍 View in ArgoCD: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
-
-    template.app-status-change: |
+    template.app-deleted: |
       email:
-        subject: 🚨 ArgoCD Alert - {{.app.metadata.name}} - Status Change
+        subject: "🗑️ ArgoCD [DELETED] - {{.app.metadata.name}} Removed"
       message: |
-        🔔 Application Status Update 🔔
+        ⚠️ NOTICE: Application '{{.app.metadata.name}}' has been completely deleted.
 
-        📁 Application: {{.app.metadata.name}}
         🌐 Namespace: {{.app.spec.destination.namespace}}
-        🔗 Git Commit: {{if .app.status.operationState.operation.sync.revision}}{{.app.status.operationState.operation.sync.revision | trunc 7}}{{else}}N/A{{end}}
-        🔄 Sync Status: {{if eq .app.status.sync.status "Synced"}}✅{{else}}⚠️{{end}} {{.app.status.sync.status}}
-        💓 Health Status: {{if eq .app.status.health.status "Healthy"}}✅{{else}}⚠️{{end}} {{.app.status.health.status}}
+        ⏰ Time: {{.time.Now | date "2006-01-02 15:04:05"}} (Dar es Salaam Time)
 
-        📊 Detailed Status:
-        {{range .app.status.resources}}
-        - {{.kind}} {{.name}}: {{.status}} {{if .health}} (Health: {{if eq .health.status "Healthy"}}✅{{else}}⚠️{{end}} {{.health.status}}){{end}}
-        {{- end}}
+        Note: This is an audit record of the removal.
 
-        {{if .app.status.conditions}}
-        🚩 Conditions:
+    template.app-health-degraded: |
+      email:
+        subject: "🚨 ArgoCD [DEGRADED] - {{.app.metadata.name}} Health Alert"
+      message: |
+        🔥 WARNING: Health degradation detected in '{{.app.metadata.name}}'.
+
+        💓 Current Health: {{.app.status.health.status}}
+
+        ⚠️ CRITICAL ISSUES:
         {{range .app.status.conditions}}
         - {{.type}}: {{.message}}
         {{- end}}
-        {{end}}
 
-        🔍 View in ArgoCD: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+        📦 Resource Status:
+        {{range .app.status.resources}}
+        {{if ne .status "Healthy"}}- {{.kind}} {{.name}}: {{.status}}{{if .health}} (Health: {{.health.status}}){{end}}{{end}}
+        {{- end}}
 
-        This is an automated message from DevOps Team
+        🔍 Investigate: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+
         🕒 Timestamp: {{.time.Now | date "2006-01-02 15:04:05"}} (Dar es Salaam Time)
 
     template.resource-deleted: |
@@ -3812,19 +3834,16 @@ notifications:
 
     template.pod-crash-loop: |
       email:
-        subject: 🔄 ArgoCD Alert - {{.app.metadata.name}} - Pod CrashLoopBackOff
+        subject: "🔄 ArgoCD [CRASH] - {{.app.metadata.name}} CrashLoopBackOff"
       message: |
-        🚨 Pod CrashLoopBackOff Detected 🚨
+        🆘 RESTART LIMIT EXCEEDED: Pod is crashing in '{{.app.metadata.name}}'.
 
-        📁 Application: {{.app.metadata.name}}
-        🌐 Namespace: {{.app.spec.destination.namespace}}
-        📦 Affected Pod: {{.resource.name}}
+        📦 Target Pod: {{.resource.name}}
+        🔢 Restart Count: {{index .resource.status.containerStatuses 0 "restartCount"}}
+        🚫 Last Exit Code: {{index .resource.status.containerStatuses 0 "lastState" "terminated" "exitCode"}}
+        💬 Reason: {{index .resource.status.containerStatuses 0 "lastState" "terminated" "reason"}}
 
-        📊 Pod Details:
-        - Status: {{.resource.status.phase}}
-        - Restart Count: {{index .resource.status.containerStatuses 0 "restartCount"}}
-        - Last State Exit Code: {{index .resource.status.containerStatuses 0 "lastState" "terminated" "exitCode"}}
-        - Last State Reason: {{index .resource.status.containerStatuses 0 "lastState" "terminated" "reason"}}
+        🔗 Check Logs: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
 
         🔍 View in ArgoCD: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
 
@@ -3841,21 +3860,25 @@ notifications:
       - when: app.status.operationState.phase in ['Error', 'Failed']
         send: [app-sync-failed]
 
+    trigger.on-deleted: |
+      - when: app.metadata.deletionTimestamp != nil
+        send: [app-deleted]
+
     trigger.on-sync-status-change: |
       - when: app.status.sync.status != 'Synced'
-        send: [app-status-change]
+        send: [app-health-degraded]
 
     trigger.on-health-status-change: |
       - when: app.status.health.status != 'Healthy'
-        send: [app-status-change]
+        send: [app-health-degraded]
 
     trigger.on-operation-running: |
       - when: app.status.operationState.phase in ['Running']
-        send: [app-status-change]
+        send: [app-sync-succeeded]
 
     trigger.on-operation-error: |
       - when: app.status.operationState.phase in ['Error']
-        send: [app-status-change]
+        send: [app-sync-failed]
 
     trigger.on-resource-deleted: |
       - when: resource.state.live == null and resource.state.target != null
@@ -3877,12 +3900,8 @@ notifications:
       triggers:
       - on-sync-succeeded
       - on-sync-failed
-      - on-sync-status-change
       - on-health-status-change
-      - on-operation-running
-      - on-operation-error
-      - on-resource-deleted
-      - on-resource-scaled
+      - on-deleted
       - on-pod-crash-loop
 
   # Default notifications controller's network policy

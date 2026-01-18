@@ -1,0 +1,6 @@
+spec:
+  template:
+    spec:
+      containers:
+      - name: guestbook-ui
+        command: ["sh", "-c", "echo 'Cashing now...' && sleep 5 && exit 1"]
